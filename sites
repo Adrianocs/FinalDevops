@@ -1,0 +1,614 @@
+#YAGO ÉSQUINES
+
+Vagrantfile: https://drive.google.com/open?id=1H1ckrAVDKyTGYkiolUgwvSR-uyTt0FW8
+
+Usuário: noturno
+Senha  : noturno
+
+##LINKS
+http://www.vagrantbox.es/
+http://agilemanifesto.org
+https://landing.google.com/sre/books/
+https://xebialabs.com/periodic-table-of-devops-tools/
+https://stackshare.io/stacks
+https://www.itcerts.com.br/devops/
+https://puppet.com/docs/puppet/6.0/modules_fundamentals.html
+https://aurelio.net/regex/
+https://aurelio.net/shell/canivete/
+https://github.com/moby/moby/blob/master/pkg/namesgenerator/names-generator.go
+https://labs.play-with-docker.com/
+https://docs.rundeck.com/docs/
+https://www.nginx.com/resources/wiki/start/topics/examples/loadbalanceexample/
+https://asciiart.website/
+
+Image: http://montink.camisadimona.com.br/image/cache/data/camisas/marvin-guia-dos-mochileiros-da-galaxias-59f7934b1bc07-estampa-307-680x969.jpg
+
+ansible-playbook -i /roles/hosts --private-key /roles/sshkey.pem /roles/docker/tasks/main.yml
+ansible-playbook -i /roles/hosts --private-key /roles/sshkey.pem /roles/bluegreen/tasks/main.yml
+
+
+
+ansible
+#Documentação Ansible: https://docs.ansible.com/ansible/latest/
+
+#hostsFile
+[devops]
+192.168.99.10
+
+[docker]
+192.168.99.20
+
+[automation]
+192.168.99.30
+
+#Teste de Conexão
+ansible 'localhost,' -e 'ansible_connection=local' -m ping
+#ping automatico com todo inventário
+ansible all -m ping
+#Ping informando o nome do arquivo de inventario [-i]
+ansible -i hosts all -m ping
+#Passando comando pelo ansible 
+ansible -i hosts all -m command -a 'free -h'
+
+
+bluegreen
+###ROLE DOCKER
+---
+# tasks file for docker
+- name: Criando Ambiente Docker - BlueGreen
+  hosts: docker
+  tasks:
+    - name: Python-pip 
+      apt:
+        name: python-pip
+        state: present
+        update_cache: yes
+
+    - pip:
+        name: docker-py
+
+    - name: Ambiente Blue
+      docker_container: 
+        name: blue
+        image: httpd
+        state: started
+        volumes:
+        - /root/blue/:/usr/local/apache2/htdocs/
+
+    - name: Ambiente Green
+      docker_container:
+        name: green
+        image: httpd
+        state: started
+        volumes:
+        - /root/green/:/usr/local/apache2/htdocs/
+
+
+###ROLE GREEN
+---
+# tasks file for bluegreen
+- name: Provisionando Aplicação - BlueGreen
+  hosts: docker
+  tasks:
+    - name: Verificando Ambiente
+      stat:
+        path: /etc/nginx/sites-enabled/green.conf
+      register: ambiente
+
+    - name: Copia Index.html - Green
+      copy:
+        src: /var/lib/jenkins/workspace/BlueGreen/index.html
+        dest: /root/green/index.html
+      when: ambiente.stat.exists == False
+
+    - name: Copia Index.html - Blue
+      copy:
+        src: /var/lib/jenkins/workspace/BlueGreen/index.html
+        dest: /root/blue/index.html
+      when: ambiente.stat.exists == True
+
+    - name: Coletando IP do Ambiente GREEN
+      command: docker exec green hostname -I
+      register: ipgreen
+      when: ambiente.stat.exists == False
+
+    - name: Coletando IP do Ambiente BLUE
+      command: docker exec blue hostname -I
+      register: ipblue
+      when: ambiente.stat.exists == True
+
+    - name: Copia Virtual Host - Green
+      template:
+        src: /roles/bluegreen/files/green.conf
+        dest: /etc/nginx/sites-enabled/green.conf
+      when: ambiente.stat.exists == False
+
+    - name: Copia Virtual Host - Blue
+      template:
+        src: /roles/bluegreen/files/blue.conf
+        dest: /etc/nginx/sites-enabled/blue.conf
+      when: ambiente.stat.exists == True
+
+   - name: Removendo o Ambiente Blue 
+     file:
+       path: /etc/nginx/sites-enabled/blue.conf
+       state: absent
+     when: ambiente.stat.exists == False
+
+   - name: Removendo o Ambiente Green 
+     file:
+       path: /etc/nginx/sites-enabled/green.conf
+       state: absent
+     when: ambiente.stat.exists == True
+
+   - name: Reinicia o NGINX
+     service:
+       name: nginx
+       state: restarted
+
+config
+/etc/sysconfig/jenkins
+
+
+## Path:        Development/Jenkins
+## Deion: Jenkins Automation Server
+## Type:        string
+## Default:     "/var/lib/jenkins"
+## ServiceRestart: jenkins
+#
+# Directory where Jenkins store its configuration and working
+# files (checkouts, build reports, artifacts, ...).
+#
+JENKINS_HOME="/var/lib/jenkins"
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# Java executable to run Jenkins
+# When left empty, we'll try to find the suitable Java.
+#
+JENKINS_JAVA_CMD=""
+
+## Type:        string
+## Default:     "jenkins"
+## ServiceRestart: jenkins
+#
+# Unix user account that runs the Jenkins daemon
+# Be careful when you change this, as you need to update
+# permissions of $JENKINS_HOME and /var/log/jenkins.
+#
+JENKINS_USER="jenkins"
+
+## Type:        string
+## Default: "false"
+## ServiceRestart: jenkins
+#
+# Whether to skip potentially long-running chown at the
+# $JENKINS_HOME location. Do not enable this, "true", unless
+# you know what you're doing. See JENKINS-23273.
+#
+#JENKINS_INSTALL_SKIP_CHOWN="false"
+
+## Type: string
+## Default:     "-Djava.awt.headless=true"
+## ServiceRestart: jenkins
+#
+# Options to pass to java when running Jenkins.
+#
+JENKINS_JAVA_OPTIONS="-Djava.awt.headless=true"
+
+## Type:        integer(0:65535)
+## Default:     8080
+## ServiceRestart: jenkins
+#
+# Port Jenkins is listening on.
+# Set to -1 to disable
+#
+JENKINS_PORT="8080"
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# IP address Jenkins listens on for HTTP requests.
+# Default is all interfaces (0.0.0.0).
+#
+JENKINS_LISTEN_ADDRESS=""
+
+## Type:        integer(0:65535)
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# HTTPS port Jenkins is listening on.
+# Default is disabled.
+#
+JENKINS_HTTPS_PORT=""
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# Path to the keystore in JKS format (as created by the JDK 'keytool').
+# Default is disabled.
+#
+JENKINS_HTTPS_KEYSTORE=""
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# Password to access the keystore defined in JENKINS_HTTPS_KEYSTORE.
+# Default is disabled.
+#
+JENKINS_HTTPS_KEYSTORE_PASSWORD=""
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# IP address Jenkins listens on for HTTPS requests.
+# Default is disabled.
+#
+JENKINS_HTTPS_LISTEN_ADDRESS=""
+
+
+## Type:        integer(1:9)
+## Default:     5
+## ServiceRestart: jenkins
+#
+# Debug level for logs -- the higher the value, the more verbose.
+# 5 is INFO.
+#
+JENKINS_DEBUG_LEVEL="5"
+
+## Type:        yesno
+## Default:     no
+## ServiceRestart: jenkins
+#
+# Whether to enable access logging or not.
+#
+JENKINS_ENABLE_ACCESS_LOG="no"
+
+## Type:        integer
+## Default:     100
+## ServiceRestart: jenkins
+#
+# Maximum number of HTTP worker threads.
+#
+JENKINS_HANDLER_MAX="100"
+
+## Type:        integer
+## Default:     20
+## ServiceRestart: jenkins
+#
+# Maximum number of idle HTTP worker threads.
+#
+JENKINS_HANDLER_IDLE="20"
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# Pass arbitrary arguments to Jenkins.
+# Full option list: java -jar jenkins.war --help
+#
+JENKINS_ARGS=""
+
+
+desafio1
+root@devops:/etc/ansible###DESAFIO 01###
+root@devops:/etc/ansible#Remover o NGINX
+root@devops:/etc/ansible#Em todas as máquinas:
+root@devops:/etc/ansible#UBUNTU: apache2, libapache2-mod-php7.0, php7.0
+root@devops:/etc/ansible#CENTOS: httpd, php
+root@devops:/etc/ansible#Habilitar Modulo PHP7.0 no UBUNTU(a2enmod php7.0)
+root@devops:/etc/ansible#Cria um index.php e enviar /var/www/html/index.php
+root@devops:/etc/ansible#Conteúdo do index.php <?php echo "Desafio de Gotham" ?>
+
+##RESOLUÇÃO
+---
+- name: Desafio1
+  hosts: all
+  tasks:
+    - name: Parar NGINX
+      service: 
+        name: nginx
+        state: stopped
+      ignore_errors: True
+#REMOVE UBUNTU
+    - name: Removendo NGINX - UBUNTU
+      apt: 
+        name: nginx*
+        state: absent
+      when: ansible_distribution == "Ubuntu"
+#REMOVE CENTOS
+    - name: Removendo NGINX - CentOS
+      yum:
+        name: nginx*
+        state: absent
+      when: ansible_distribution == "CentOS"
+#INSTALA UBUNTU
+    - name: Instalando Servidor Web - Ubuntu
+      apt:
+        name: ['apache2','libapache2-mod-php7.0','php7.0']
+        state: present
+        update_cache: yes
+      when: ansible_distribution == "Ubuntu"
+#INSTALA CENTOS
+    - name: Instalando Servidor Web - CentOS
+      yum:
+        name: ['httpd','php']
+        state: present
+      notify: httpd
+      when: ansible_distribution == "CentOS"
+#ATIVA MODULO - UBUNTU
+    - name: Ativando Modulo PHP - Ubuntu
+      command: a2enmod php7.0
+      notify: apache
+      when: ansible_distribution == "Ubuntu"
+#COPIA INDEX
+    - name: Copiando Index.php
+      copy:
+        src: /etc/ansible/index.php
+        dest: /var/www/html/index.php
+#Gerenciando Serviços
+  handlers:
+    - name: httpd
+      service:
+        name: httpd
+        state: restarted
+
+    - name: apache
+      service:
+        name: apache2
+        state: restarted
+
+desafio2
+ Link Doc. Puppet: https://puppet.com/docs/puppet/6.0/puppet_platform.html#task-383
+
+root@devops:~# #DESAFIO 2
+root@devops:~# #Criar um roles chamada puppet
+root@devops:~# #3 Arquivos (prerequisitos, install_ubuntu, install_centos)
+root@devops:~# #Acessar Doc do Puppet - Link no Dontpad
+root@devops:~# #Baixar os repositorios CentOS(.rpm) / Debian(.deb) - Prerequisitos
+root@devops:~# #Nos dois Install
+root@devops:~# #     |» Instalação dos pacotes baixados
+root@devops:~# #     |» Instalar pacote puppet-agent
+
+#RESOLUÇÃO
+→prerequisitos.yml
+- name: Baixando Repositorio - Ubuntu
+  get_url:
+    url: https://apt.puppetlabs.com/puppet6-release-xenial.deb
+    dest: /root/
+  when: ansible_distribution == "Ubuntu"
+
+- name: Baixando Repositorio - CentOS
+  get_url:
+    url: https://yum.puppet.com/puppet6/puppet6-release-el-7.noarch.rpm
+    dest: /root/
+  when: ansible_distribution == "CentOS"
+
+
+→install_ubuntu.yml
+- name: Instalando Repositorio - UBUNTU
+  apt:
+    deb: /root/puppet6-release-xenial.deb
+    state: present
+
+- name: Instalando o puppet-agent - UBUNTU
+  apt:
+    name: puppet-agent
+    state: present
+    update_cache: yes
+
+
+→install_centos.yml
+- name: Instalando Repositorio - CENTOS
+  yum:
+    name: /root/puppet6-release-el-7.noarch.rpm
+    state: present
+
+- name: Instalando puppet-agent - CENTOS
+  yum:
+    name: puppet-agent
+    state: present
+
+→main.yml
+---
+# tasks file for puppet
+- name: Roles de Instalação do Puppet-agent
+  hosts: all
+  tasks:
+    - include: prerequisitos.yml
+    - include: install_ubuntu.yml
+      when: ansible_distribution == "Ubuntu"
+    - include: install_centos.yml
+      when: ansible_distribution == "CentOS"
+
+#DESAFIO 3
+
+-MODULO DOCKER
+-Fazer um modulo chamado DOCKER
+-E criar o arquivo 'modules/docker/manifests/init.pp' seguindo as informações da Documentação do DOCKER (https://docs.docker.com/install/)
+-Fazer a init.pp tanto para Like Debian quanto para Like Red Hat
+-Porem a classe só deve rodar na máquina docker.salas4linux.com.br (arquivo prodution/site.pp)
+
+
+##RESOLUÇÃO 
+class docker {
+	case $::osfamily{
+		"redhat":{
+$pacotes = ['yum-utils','device-mapper-persistent-data','lvm2']
+$repositorio = "/bin/yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo"
+
+		}
+	
+		"debian":{
+
+$distro_name = $facts['os']['distro']['codename']
+$pacotes = ['apt-transport-https','ca-certificates','curl','software-properties-common']
+$repositorio = "/usr/bin/curl -fsSL https://download.docker.com/linux/ubuntu/gpg | /usr/bin/apt-key add - ; /usr/bin/add-apt-repository 'deb [arch=amd64] https://download.docker.com/linux/ubuntu $distro_name stable' ; /usr/bin/apt update" 
+
+		}
+	}
+
+	package{$pacotes:
+		ensure => present,
+	}	
+	exec{"Adicionando Repositorio":
+		command => $repositorio
+	}
+	package{'docker-ce':
+		ensure => present,
+	}
+	service{'docker':
+		ensure => running,
+		enable => true,
+		require => Package['docker-ce']	
+	}
+}
+
+desafio4
+#Criar um Job - Nome: Jenkins
+#Steps - https://wiki.jenkins.io/display/JENKINS/Installing+Jenkins+on+Red+Hat+distributions
+#Nodes - rundeck do node Automation para root
+
+Step 1: yum install wget -y
+Step 2: wget -O /etc/yum.repos.d/jenkins.repo http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo
+Step 3: rpm --import https://jenkins-ci.org/redhat/jenkins-ci.org.key
+Step 4: yum install jenkins -y
+Step 5: yum install java -y
+
+docker
+Docker Compose:
+curl -L https://github.com/docker/compose/releases/download/1.21.2/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+
+# imagens Alpine
+etopian/alpine-php-wordpress
+yobasystems/alpine-mariadb
+
+# docker-compose.yaml
+wordpress:
+  image: wordpress
+  links:
+    - mysql_server:mysql
+  ports:
+    - 8080:80
+  environment:
+    - WORDPRESS_DB_PASSWORD=4linux
+
+mysql_server:
+  image: mysql
+  environment:
+    - MYSQL_ROOT_PASSWORD=4linux
+    - MYSQL_DATABASE=wordpress
+
+root@docker:~/wordpress# #docker run -e MYSQL_ROOT_PASSWORD=4linux -e MYSQL_DATABASE=wordpress --name dexter-mysql-server -d mysql:5.7.22
+root@docker:~/wordpress# #docker run -e WORDPRESS_DB_PASSWORD=4linux --name dexter-wordpress-server --link dexter-mysql-server:mysql -p 0.0.0.0:8080:80 -d wordpress 
+
+
+
+root@docker:~/wordpress# docker run -d --name portainer -p 8081:9000 -v /var/run/docker.sock:/var/run/docker.sock portainer/portainer
+
+
+https://upload.wikimedia.org/wikipedia/commons/thumb/3/35/Tux.svg/2000px-Tux.svg.png
+
+gitlab
+---
+- name: Instalando GITLAB
+  hosts: devops
+  tasks:
+    - name: Instalando pacotes necessários
+      apt:
+        name: ['curl','openssh-server','ca-certificates']
+        state: present
+        update-cache: yes
+
+    - name: Executando  - GITLAB
+      shell: curl https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/.deb.sh | bash
+      register: comando
+
+    - name: Instalando Pacote - GITLAB
+      apt:
+        name: gitlab-ce
+        state: present
+      when: comando.rc == 0
+
+
+
+jenkins
+if [ $(($RANDOM%2)) == 0 ]; then
+	echo "Funcionou"
+    exit 0
+else
+	echo "Falhou"
+    exit 1
+fi
+
+puppet
+class mera {
+	case $::osfamily{
+		"redhat": {
+$pacotes = ["epel-release","git","vim","sysstat","htop","fortune-mod","figlet","fish"]
+		}
+		"debian": {
+			exec{"Atualizar_Repositorio": 
+				command => "/usr/bin/apt update"
+			}
+$pacotes = ["git","vim","sysstat","htop","fortunes-br","figlet","fish"]
+		}
+	}
+
+	package{$pacotes:
+		ensure => present,
+	}
+
+	file{'/root/.bashrc':
+		source => "puppet:///modules/mera/bashrc_mera",
+		ensure => present,
+	}
+
+	file{'/root/.bash_logout':
+		source => "puppet:///modules/mera/bash_logout",
+		ensure => present,
+	}
+
+	user{"aqualad":
+		ensure => present,
+		managehome => true,
+		shell => "/usr/bin/fish",
+	}
+}
+
+
+rundeck
+---
+- name: Instalando Rundeck
+  hosts: automation
+  tasks:
+    - name: Add Repositorio Rundeck
+      yum:
+        name: http://repo.rundeck.org/latest.rpm
+        state: present
+      register: result
+
+    - name: Mostrando resultado
+      debug
+        var: result.stdout
+
+    - name: Instalando Rundeck
+      yum:
+        name: ['java-1.8.0','rundeck']
+        state: present
+
+###ADD NODES - /var/rundeck/projects/Luthor/etc/resources.xml
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project>
+  <node name="192.168.99.30" deion="Rundeck server node" tags="" hostname="192.168.99.30" osArch="amd64" osFamily="unix" osName="Linux" osVersion="3.10.0-693.21.1.el7.x86_64" username="rundeck"/>
+  <node name="192.168.99.20" deion="Rundeck server node" tags="" hostname="192.168.99.20" osArch="amd64" osFamily="unix" osName="Linux" osVersion="3.10.0-693.21.1.el7.x86_64" username="root"/>
+  <node name="192.168.99.10" deion="Rundeck server node" tags="" hostname="192.168.99.10" osArch="amd64" osFamily="unix" osName="Linux" osVersion="3.10.0-693.21.1.el7.x86_64" username="root"/>
+</project>
+
